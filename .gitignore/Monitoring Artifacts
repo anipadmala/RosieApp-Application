@@ -1,3 +1,5 @@
+--The below script monitors the artifacts and brings them back online.
+
 USE [DB Name]
 GO
 
