@@ -1,0 +1,44 @@
+#below checks the artifacts and alerts in event of failure#
+
+# ==============================================================================================
+# 
+# Microsoft PowerShell Source File
+# 
+# NAME: 		ServiceCheck.ps1
+# Wrapper scriptname:	ServiceCheckRun.ps1
+#
+# AUTHOR: Anirudh Padmala
+# DATE  : 06/10/2017
+# 
+# must use a wrapper script with powershell script due to running at privileged access.
+# 
+# ==============================================================================================
+
+function FuncCheckService{
+ param($ServiceName)
+ $arrService = Get-Service -Name $ServiceName
+ if ($arrService.Status -ne "Running"){
+ Start-Service $ServiceName
+ $domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()
+ FuncMail -To "" -From "$env:COMPUTERNAME@$domain"  -Subject "Servername: $env:COMPUTERNAME Service ($ServiceName) started." -Body "Service $ServiceName started" -smtpServer "email.xxx.org"
+ }
+ }
+ 
+function FuncMail {
+ param($To, $From, $Subject, $Body, $smtpServer)
+ $msg = new-object Net.Mail.MailMessage
+ $smtp = new-object Net.Mail.SmtpClient($smtpServer)
+ $msg.From = $From
+ $msg.To.Add($To)
+ $msg.Subject = $Subject
+# $msg.IsBodyHtml = 1
+ $msg.Body = $Body
+ $smtp.Send($msg)
+ }
+ 
+FuncCheckService -ServiceName "BTSSvc`$BizTalkServerApplication"
+FuncCheckService -ServiceName "BTSSvc`$BizTalkServerApplication64Rec" 
+FuncCheckService -ServiceName "BTSSvc`$BizTalkServerApplication64Snd" 
+
+ 
+
