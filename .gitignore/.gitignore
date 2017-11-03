@@ -1,0 +1,124 @@
+USE [DB Name]
+GO
+
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+
+Create procedure [dbo].[up_bts_SendPortsMonitoring]
+as
+
+/* __________________________________________________________________________________________________________
+     Source Code:	
+          Author:	Anirudh Padmala	
+            Date:	01/09/2017
+    Requested By:	
+
+         Purpose:	Report about disabled Send Ports in BizTalk
+
+        Keywords:	execute coDBA.dbo.up_bts_SendPortsMonitoring
+
+Run Instructions:	 
+
+		  Inputs:																
+					
+					
+		  Outputs:	Report email
+														
+         Reports:	Run from coDBA
+
+
+	   Revisions:   
+  ________________________________________________________________________________________________________ */
+
+
+
+Declare @Body varchar(max),
+      @TableHead varchar(max),
+      @TableTail varchar(max),
+      @Cnt	int
+
+ 
+
+Set NoCount On;
+
+Select @Cnt = COUNT(*)
+	  FROM [BizTalkMgmtDb].[dbo].[bts_sendport]
+	  WHERE nPortStatus <> 3
+
+If (@Cnt > 0 )
+BEGIN
+Set @TableTail = '</table></body></html>';
+
+Set @TableHead = '<html><head>' +
+
+                  '<style>' +
+
+                  'td {border: solid black 1px;padding-left:5px;padding-right:5px;padding-top:1px;padding-bottom:1px;font-size:11pt;} ' +
+
+                  '</style>' +
+
+                  '</head>' +
+
+                  '<body><table cellpadding=0 cellspacing=0 border=0>' +
+
+                  '<tr bgcolor=#FFEFD8><td align=center><b>Send Port Name</b></td>' + 
+
+                  '<td align=center><b>Status</b></td>';
+
+  Select @Body = (Select Row_Number() Over(Order By nvcName, nPortStatus) % 2 As [TRRow],
+            nvcName As [TD],
+            CASE nPortStatus WHEN 1 THEN 'unenlisted' WHEN 2 THEN 'stopped' WHEN 3 THEN 'started' END As [TD]
+	  FROM [BizTalkMgmtDb].[dbo].[bts_sendport]
+	  WHERE nPortStatus <> 3
+      For XML raw('tr'), Elements)  
+--nPortStatus:	 1 - unenlisted
+--				 2 - stopped
+--				 3 - started
+
+-- Replace the entity codes and row numbers
+
+Set @Body = Replace(@Body, '_x0020_', space(1))
+
+Set @Body = Replace(@Body, '_x003D_', '=')
+
+Set @Body = Replace(@Body, '<tr><TRRow>1</TRRow>', '<tr bgcolor=#C6CFFF>')
+
+Set @Body = Replace(@Body, '<TRRow>0</TRRow>', '')
+
+ 
+
+Select @Body = @TableHead + @Body + @TableTail
+
+ 
+
+-- return output
+
+Select @Body
+
+
+-------------------------------------------------------------------------------------------------------------
+-- Send mail
+
+Declare	@strSubject		varchar(200),
+	@strMsg				varchar(1000),
+	@strLastUpdateDw	varchar(30)
+
+
+Set	@strSubject	= 'Server: ' + @@servername + ' -  BizTalk Disabled Send Ports report for ' + case @@servername when 'Server1' then 'Server1-1' when 'Server2' then 'Server2-1' end  
+
+Set @strMsg = @Body
+
+Exec  msdb..sp_send_dbmail	
+	@recipients	= ''
+	,@subject	= @strSubject
+	,@body		= @strMsg
+	,@body_format='HTML'
+
+END
+
+GO
