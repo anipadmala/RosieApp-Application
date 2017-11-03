@@ -1,0 +1,296 @@
+## Below checks the evenviewer and alerts for any Errors##
+
+####################################################################################################
+##### EVENTLISTENER ############################################################################
+##################################################################################################
+#
+# Author:      Anirudh Padmala
+# Created:     2016.09.05
+# Updated:     
+# Tested:      
+# Readability: Domain Admins Only
+# Security:    domain admin; 
+#
+# This function starts an event listener which will listen for certain events
+# in the subscribed event log.  Upon catching the event, another function 
+# will be called for problem remediation/notification.  
+#
+##### Comments
+# 
+# This is currently called on boot from the Task Scheduler.  
+#
+##### Usage and Argument
+#
+# eventListener           -Start the event listener
+# eventListener true      -Stop the event listener and cease notifications
+# 
+##################################################################################################
+###################################################################################################
+####################################################################################################
+
+Function eventListener($unregister = $false) {
+
+    if ($unregister -eq $false) {
+
+        if (!(Get-EventSubscriber -sourceidentifier "NewEventLogEntry")) {
+
+            Write-Host "Starting Event Subscriber"
+            $appLog = Get-EventLog -List | Where-Object {$_.Log -eq 'Application'}
+            Register-ObjectEvent -InputObject $appLog -SourceIdentifier NewEventLogEntry -EventName EntryWritten -Action {
+
+            $entry = $event.SourceEventArgs.Entry
+
+                    switch ($entry.EventID) {
+                        #4634 { eventAlert($entry) };   # Anirudh's Test
+                        #1138 { sqlCheckIfTicketOpened($entry) };
+                        5710 { eventAlert($entry) };
+                        5740 { eventAlert($entry) };
+			            <#
+                           if ($entry.EntryType -eq "Error") {
+                               eventAlert($entry) };
+        	               } else {
+                                continue;
+                           }
+                        #>
+                        5632 { eventAlert($entry) };
+			            #8112 { eventAlert($entry) };
+        	            5641 { eventAlert($entry) };
+        	            5645 { eventAlert($entry) };
+        	            5649 { eventAlert($entry) };
+        	            5731 { eventAlert($entry) };
+                        5719 { eventAlert($entry) };
+                        5753 { eventAlert($entry) };
+                        5788 { eventAlert($entry) };
+			            8114 { eventAlert($entry) };
+                        8116 { eventAlert($entry) };
+        	            default { continue };
+                        
+                    }
+
+
+########### NEW CODE
+
+	if (($entry.Source -eq "SQLBulkXML") -and ($entry.EntryType -eq "Error")) {
+		eventAlert($entry)
+	}
+
+
+	if (($entry.EventID -eq 8112) -and ($entry.EntryType -eq "Error")) {
+		eventAlert($entry)
+	}
+
+	
+###########
+            #Unregister-Event NewEventLogEntry
+            }
+        } else { Write-Host "Event Subscriber is already running" }
+    } else { Unregister-Event NewEventLogEntry; Write-Host "Stopped Event Subscriber" }
+}
+
+
+####################################################################################################
+##### sqlCheckIfTicketOpened ######################################################################
+##################################################################################################
+#
+# Author:      Anirudh Padmala
+# Created:     2016.09.05
+# Updated:     
+# Tested:      
+# Readability: Domain Admins Only
+# Security:    domain admin; 
+#
+# This function recevies events from function "eventListner" and sends a
+# query to prdTrackItDB checking if there is already a ticket opened with 
+# the same subject.  If so, it will add an update to the current ticket 
+# instead of opening a new ticket.  
+#
+##### Comments
+# 
+# This function is currently called only by "eventListener"
+#
+##### Usage and Argument
+#
+# sqlCheckIfTicketOpened          -Checks if a ticket is currently opened based on ticket Subject and and open/closed status
+# 
+##################################################################################################
+###################################################################################################
+####################################################################################################
+
+Function sqlCheckIfTicketOpened($Event) {
+# Invoke-SqlCmd -ServerInstance prdTrackItDB -Database TRACKIT8_DATA2  -Query "Select WO_NUM,REQDATE from TRACKIT8_DATA2.DBO.TASKS WHERE TASK = 'PrdBTS Event: 5740' and CLSDBY Is NULL"
+#
+# THESE NEED TO BE ADDED BEFORE INVOKE-SQLCMD WILL FUNCTION
+
+Add-PSSnapin SqlServerCmdletSnapin100
+#Add-PSSnapin SqlServerProviderSnapin100
+
+#$event.subject = "PrdBTS Event: 5740"
+
+$serverName = "prdTrackItDB"
+$dbName = "TRACKIT8_DATA2"
+#$dbQuery = "Select WO_NUM,REQDATE from TRACKIT8_DATA2.DBO.TASKS WHERE TASK = 'PrdBTS Event: 5740' and CLSDBY Is NULL"
+
+$dbQuery = "Select WO_NUM,REQDATE from TRACKIT8_DATA2.DBO.TASKS WHERE TASK = 'Test - BB - Yeah' and CLSDBY Is NULL"
+
+$results = Invoke-SqlCmd -ServerInstance $serverName -Database $dbName  -Query $dbQuery
+
+	$woNumber = $results[0]	
+	$split = $results[1] -split ' '			# Split time and date and place in two separate varables	
+	$ticketDate = $split[0]				# $split[0] = Ticket open date
+	$ticketTime = $split[1]				# $split[1] = Ticket open time
+
+	#$holdTime = (Get-Date).AddMinutes(-10)		# Hold timer - How long do we want to cease creating tickets?  Current set for ten minutes
+	$holdTime = "21:15:33"				# USED FOT TESTING
+	#$currentDate = Get-Date -format MM/dd/yyyy	# THIS NEEDS TO BE ENABLED WHEN DONE TESTING
+	$currentDate = "04/07/2014"			# USED FOT TESTING
+
+
+
+	Write-Host "HD:"$currentDate
+	Write-Host "TD:"$ticketDate
+	Write-Host "HT:"$holdTime
+	Write-Host "TT:"$ticketTime
+    
+    Write-Host "Results0:"$results[0]
+    Write-Host "woNumber:"$woNumber
+    Write-Host "Eventid:"$Event.EventID
+
+
+
+
+	if (($currentDate -eq $ticketDate) -and ($holdTime -le $ticketTime)) {
+		Write-Host "Ticket should be appended"
+        
+        Write-Host "woNumber:"$woNumber
+        Write-Host "Eventid:"$Event.EventID
+        
+        
+        
+		eventAlert($Event, $woNumber)
+	} else {
+		Write-Host "Ticket should be created"
+		$woNumber = $false
+		eventAlert($Event, $woNumber)
+	}
+
+
+
+}
+
+
+####################################################################################################
+##### EVENTALERT ##################################################################################
+##################################################################################################
+#
+# Author:      Anirudh Padmala
+# Created:     2016.09.05
+# Updated:     
+# Tested:      
+# Readability: Domain Admins Only
+# Security:    domain admin;  
+#
+# This function recevies events from function "eventListner" and sends an
+# email notification with event information to the address specified below.  
+# All variables are currently hard coded into the function. 
+#
+##### Comments
+# 
+# This function is currently called only by "eventListener"
+#
+##### Usage and Argument
+#
+# eventAlert              -Triggers email notification
+# 
+##################################################################################################
+###################################################################################################
+####################################################################################################
+
+Function eventAlert($Event) {
+
+    Write-Host "Event EA:"$Event
+    Write-Host "woNumber:"$woNumber
+
+    # Do not send email during maintenance schedule - 12am - 2am      <----------This has been extended to 4am per 
+    $currentTime = Get-Date                        # Current time
+    #$startMaint = "00:00"                         # Midnight
+    $endMaint = "03:00"                            # 3 AM
+    
+    if ($currentTime -gt $endMaint) {              # If current time is greater that 2am than send email on event notification
+
+        Write-Host "Success!"
+        Write-Host "Event Level:" $Event.Index
+        Write-Host "Event Time:" $Event.TimeWritten
+        Write-Host "Event ID:" $Event.EventID
+        Write-Host "Provider Name:" $Event.Source
+        
+        Write-Host "Event Message:" $Event.Message
+        
+        Write-Host "Entry Type:" $Event.EntryType
+        Write-Host "Event Log:" $Event.LogDisplayName
+        Write-Host "Username:" $Event.UserName
+
+        $emailFrom = "$($env:computername)@$($env:userdnsdomain)"
+        #$emailFrom = ""
+        $emailTo = ""
+        #$emailTo = ""
+               
+        
+        # [[WO#70329]]
+	    #if ($woNumber -eq $false) {
+	    #   $subject = "PrdBTS Event: " + $Event.EventID
+	    #} else {
+		#  $subject = "[[WO`#$woNumber]]"
+	    #}
+        $subject = "$($env:computername) Event: " + $Event.EventID
+        
+        $smtpServer = "Email.xxxx.Org"
+        
+        $eLevel = $Event.Index
+        $eTime = $Event.TimeWritten
+        $eID = $Event.EventID
+        $eProv = $Event.Source
+        $eEntry = $Event.EntryType
+        $eLog = $Event.LogDisplayName
+        $eUsername = $Event.UserName
+        $eMessage = "Message: `n`n" + $Event.Message
+        $footer = "`n`n`n`n<font size=2><em>This email should not be sent during the maintenance window of 12am to 3am.  If it is, please contact # and we'll enforce.  Woohoo!</em></font>"
+
+        $body = @(" <font size=3><b>Email From:</b>  $emailFrom <br />`
+        <b>Email To:</b>    $emailTo <br />`
+        <b>SMTP Server:</b> $smtpServer <br />`
+        <b>Subject:</b>     $subject <br /><br />`
+        
+        <b>Event Level:</b> $eLevel <br />`
+        <b>Event Time:</b> $eTime <br />`
+        <b>Event ID:</b> $eID <br />`
+        <b>Provider Name:</b> $eProv <br />`
+        <b>Entry Type:</b> $eEntry <br />`
+        <b>Event Log:</b> $eLog <br />`
+        <b>Username:</b> $eUserame <br /><br />`
+
+        $eMessage </font><br /><br />`
+        
+        $footer")
+
+
+        #$Email = New-Object System.Net.Mail.MailMessage
+        $Email = new-object Net.Mail.MailMessage($emailFrom, $emailTo, $subject, $body)
+        #$Email.From = $emailFrom
+        #$Email.To = $emailTo
+        #$Email.Subject = $subject
+        $Email.IsBodyHTML = $true
+        #$Email.Body = $body
+
+        $smtp = New-Object Net.Mail.SmtpClient($smtpServer)
+        #$smtp.Send($emailFrom, $emailTo, $subject, $body)
+        $smtp.Send($Email)
+
+    }
+    
+}
+
+eventListener
+#eventAlert
+#sqlCheckIfTicketOpened
+ 
+
